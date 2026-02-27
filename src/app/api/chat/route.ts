@@ -15,7 +15,7 @@ const ollama = createOpenAICompatible({
   baseURL: "http://localhost:11434/v1",
 });
 
-export const maxDuration = 60;
+export const maxDuration = 90;
 
 function buildDataContext(fileName: string): string {
   try {
@@ -79,8 +79,12 @@ RULES:
 6. After any modification (add/update/delete), ALWAYS use read_excel tool to get fresh data and confirm the change.
 7. Present data in clean markdown tables when showing multiple records.
 8. Be precise with numbers, counts, and values. Double-check your answers against the actual data.
-9. If the user speaks in Urdu or Roman Urdu, respond in the same language.
+9. If the user speaks in Urdu or Roman Urdu, respond in the same language with natural and helpful responses.
 10. When asked "how many", COUNT the actual rows from the data. Do NOT estimate.
+11. NEVER stop mid-response. If the output is long (like a table), continue until the entire response is complete.
+12. MEMORY & CONTEXT: Pay close attention to previous messages in the conversation. If the user refers to a "previous record", "the last one", or something "discussed earlier", find it in the chat history. You are expected to have a "perfect memory" of the current session's chat history.
+
+CRITICAL: Provide the FINAL answer to the user clearly. Do not just stop after a tool execution.
 
 CAPABILITIES:
 - Read, search, filter, analyze spreadsheet data
@@ -95,6 +99,7 @@ ${dataContext}`;
     model: ollama.chatModel("minimax-m2:cloud"),
     system: systemMessage,
     messages: modelMessages,
+    maxTokens: 4096,
     tools: {
       read_excel: tool({
         description:
@@ -230,7 +235,7 @@ ${dataContext}`;
         },
       }),
     },
-    stopWhen: stepCountIs(5),
+    stopWhen: stepCountIs(10),
   });
 
   return result.toUIMessageStreamResponse();

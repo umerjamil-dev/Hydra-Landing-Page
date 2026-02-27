@@ -30,7 +30,31 @@ export default function Home() {
 
   const { messages, sendMessage, status, setMessages } = useChat({
     transport,
+    onFinish: (message) => {
+      if (typeof window !== "undefined") {
+        // Syncing handled by useEffect below
+      }
+    },
   });
+
+  // Load initial messages from localStorage
+  useEffect(() => {
+    const saved = localStorage.getItem("chat-messages");
+    if (saved) {
+      try {
+        setMessages(JSON.parse(saved));
+      } catch (e) {
+        console.error("Failed to parse saved messages", e);
+      }
+    }
+  }, [setMessages]);
+
+  // Sync state to localStorage whenever messages change
+  useEffect(() => {
+    if (typeof window !== "undefined" && messages.length > 0) {
+      localStorage.setItem("chat-messages", JSON.stringify(messages));
+    }
+  }, [messages]);
 
   const isLoading = status === "streaming" || status === "submitted";
 
@@ -54,7 +78,7 @@ export default function Home() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
       setFileInfo(data);
-      setMessages([]);
+      // setMessages([]); // Removed to persist chat history when file changes
     } catch (err) {
       setUploadError(err instanceof Error ? err.message : "Upload failed");
     } finally {
@@ -88,6 +112,17 @@ export default function Home() {
           </div>
         </div>
         <div className="flex items-center gap-3">
+          <button
+            onClick={() => {
+              if (confirm("Clear chat history?")) {
+                setMessages([]);
+                localStorage.removeItem("chat-messages");
+              }
+            }}
+            className="rounded-lg px-3 py-1.5 text-sm text-zinc-400 transition hover:bg-zinc-800 hover:text-zinc-200"
+          >
+            Clear Chat
+          </button>
           {fileInfo && (
             <button
               onClick={handleDownload}
@@ -200,11 +235,10 @@ export default function Home() {
                 className={`mb-4 flex ${m.role === "user" ? "justify-end" : "justify-start"}`}
               >
                 <div
-                  className={`max-w-[75%] rounded-2xl px-4 py-3 text-sm leading-relaxed ${
-                    m.role === "user"
-                      ? "bg-emerald-600 text-white"
-                      : "bg-zinc-800 text-zinc-200"
-                  }`}
+                  className={`max-w-[75%] rounded-2xl px-4 py-3 text-sm leading-relaxed ${m.role === "user"
+                    ? "bg-emerald-600 text-white"
+                    : "bg-zinc-800 text-zinc-200"
+                    }`}
                 >
                   <div className="whitespace-pre-wrap">
                     {m.parts
