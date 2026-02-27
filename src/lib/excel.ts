@@ -147,6 +147,40 @@ export function updateRows(
   return { success: true, updatedCount };
 }
 
+export function getExcelMetadata(
+  fileName: string,
+  sheetName?: string
+): {
+  rowCount: number;
+  columnDetails: Record<string, { type: string; uniqueValues: string[]; count: number }>;
+} {
+  const { rows, headers } = readExcel(fileName, sheetName);
+  const rowCount = rows.length;
+  const columnDetails: Record<string, { type: string; uniqueValues: string[]; count: number }> = {};
+
+  for (const header of headers) {
+    const values = rows.map((r) => r[header]).filter((v) => v !== null && v !== undefined);
+    const uniqueVals = Array.from(new Set(values.map((v) => String(v))));
+
+    // Detect type
+    let type = "string";
+    if (values.length > 0) {
+      const firstVal = values[0];
+      if (typeof firstVal === "number") type = "number";
+      else if (firstVal instanceof Date) type = "date";
+      else if (typeof firstVal === "boolean") type = "boolean";
+    }
+
+    columnDetails[header] = {
+      type,
+      uniqueValues: uniqueVals.slice(0, 15), // Sample first 15 unique values
+      count: uniqueVals.length,
+    };
+  }
+
+  return { rowCount, columnDetails };
+}
+
 export function saveUploadedFile(buffer: Buffer, fileName: string): string {
   if (!fs.existsSync(UPLOADS_DIR)) {
     fs.mkdirSync(UPLOADS_DIR, { recursive: true });

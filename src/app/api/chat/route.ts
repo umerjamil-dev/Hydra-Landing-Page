@@ -8,6 +8,7 @@ import {
   deleteRows,
   updateRows,
   getUploadedFiles,
+  getExcelMetadata,
 } from "@/lib/excel";
 
 const ollama = createOpenAICompatible({
@@ -20,32 +21,30 @@ export const maxDuration = 90;
 function buildDataContext(fileName: string): string {
   try {
     const { headers, rows, sheetNames } = readExcel(fileName);
+    const meta = getExcelMetadata(fileName);
     const totalRows = rows.length;
 
-    let context = `\n\n=== EXCEL FILE DATA (RAG CONTEXT) ===\n`;
-    context += `File: "${fileName}"\n`;
-    context += `Sheets: ${sheetNames.join(", ")}\n`;
-    context += `Columns: ${headers.join(", ")}\n`;
-    context += `Total Rows: ${totalRows}\n\n`;
+    let context = `\n\n=== EXCEL MICRO-METADATA (STRUCTURAL INSIGHTS) ===\n`;
+    context += `File: "${fileName}" | Total Rows: ${totalRows}\n`;
+    context += `Sheets: ${sheetNames.join(", ")}\n\n`;
 
-    // Include all data (up to 200 rows to avoid token limit)
-    const dataToInclude = rows.slice(0, 200);
-    context += `--- DATA START ---\n`;
-    // Header row
+    context += `COLUMN INSIGHTS:\n`;
+    for (const [col, details] of Object.entries(meta.columnDetails)) {
+      context += `- [${col}] (${details.type}): ${details.count} unique values. Sample: ${details.uniqueValues.join(", ")}${details.count > 15 ? "..." : ""}\n`;
+    }
+
+    context += `\n=== SAMPLE DATA (FIRST 100 ROWS) ===\n`;
+    // Include first 100 rows for context
+    const dataToInclude = rows.slice(0, 100);
     context += headers.join(" | ") + "\n";
     context += headers.map(() => "---").join(" | ") + "\n";
-    // Data rows
     for (const row of dataToInclude) {
-      const values = headers.map((h) => {
-        const val = row[h];
-        return val !== null && val !== undefined ? String(val) : "";
-      });
+      const values = headers.map((h) => String(row[h] ?? ""));
       context += values.join(" | ") + "\n";
     }
-    context += `--- DATA END ---\n`;
 
-    if (totalRows > 200) {
-      context += `\nNote: Showing first 200 of ${totalRows} rows. Use search tool for specific records.\n`;
+    if (totalRows > 100) {
+      context += `\nNote: Data context truncated at 100 rows. ALWAYS use 'search_excel' for files with ${totalRows} rows if checking beyond row 100.\n`;
     }
 
     return context;
@@ -64,42 +63,33 @@ export async function POST(req: Request) {
   // Build RAG context from Excel data
   const dataContext = activeFile ? buildDataContext(activeFile) : "";
 
-  const systemMessage = `You are an Advanced AI Excel Manager - a highly intelligent assistant specialized in managing Excel spreadsheet data with precision and accuracy.
+  const systemMessage = `You are an Advanced AI Excel Manager with a Smart RAG system for 100% accuracy.
 
-ROLE: You are an expert data manager. You answer questions about the spreadsheet data with 100% accuracy by referencing the actual data provided below. You NEVER guess or make up data.
+ROLE: Expert Data Auditor & Manager. Your primary goal is precision. 
 
-${activeFile ? `Currently active file: "${activeFile}"` : "No file is currently loaded. Ask the user to upload an Excel file first."}
+CORE REASONING ENGINE (SMART RAG):
+1. READ METADATA FIRST: Review the "EXCEL MICRO-METADATA" to understand column names, data types, and unique value samples.
+2. QUERY PLANNING:
+   - If a question asks for a specific record (e.g., "Find Ahmad"), use 'search_excel' ONLY IF the record isn't in the provided SAMPLE DATA.
+   - If a question asks for a count or summary (e.g., "Total sales in Lahore"), use 'search_excel' to find all relevant records if the total rows > 100.
+3. VERIFY-BEFORE-RESPOND: After getting data (via context or tool), double-check your count and values against the data. Do NOT estimate.
+4. ZERO HALLUCINATION: If the data isn't in the context or search results, state clearly that it is not found.
 
 RULES:
-1. ALWAYS answer from the ACTUAL DATA provided below. Never hallucinate or invent records.
-2. When the user asks about data (e.g. "show records", "how many rows", "find X"), answer DIRECTLY from the data context below. You already have the data - use it immediately without calling tools unnecessarily.
-3. Only use read_excel tool if the data might have changed (after add/update/delete operations) to get fresh data.
-4. Use search_excel tool only when the data context below is truncated (200+ rows) and user needs specific records.
-5. Use add_row, update_rows, delete_rows tools when user wants to MODIFY data.
-6. After any modification (add/update/delete), ALWAYS use read_excel tool to get fresh data and confirm the change.
-7. Present data in clean markdown tables when showing multiple records.
-8. Be precise with numbers, counts, and values. Double-check your answers against the actual data.
-9. If the user speaks in Urdu or Roman Urdu, respond in the same language with natural and helpful responses.
-10. When asked "how many", COUNT the actual rows from the data. Do NOT estimate.
-11. NEVER stop mid-response. If the output is long (like a table), continue until the entire response is complete.
-12. MEMORY & CONTEXT: Pay close attention to previous messages in the conversation. If the user refers to a "previous record", "the last one", or something "discussed earlier", find it in the chat history. You are expected to have a "perfect memory" of the current session's chat history.
+1. ALWAYS answer from actual data. 
+2. Use markdown tables for multiple records.
+3. Match language: If Urdu/Roman Urdu is used, respond naturally in the same language.
+4. MEMORY: Keep track of the entire conversation.
+5. NO TRUNCATION: Complete every response fully.
 
-CRITICAL: Provide the FINAL answer to the user clearly. Do not just stop after a tool execution.
+${activeFile ? `Currently active file: "${activeFile}"` : "No file is currently loaded."}
 
-CAPABILITIES:
-- Read, search, filter, analyze spreadsheet data
-- Add new records
-- Update existing records  
-- Delete records
-- Provide summaries, statistics, and insights
-- Answer any question about the data accurately
 ${dataContext}`;
 
   const result = streamText({
     model: ollama.chatModel("minimax-m2:cloud"),
     system: systemMessage,
     messages: modelMessages,
-    maxTokens: 4096,
     tools: {
       read_excel: tool({
         description:
