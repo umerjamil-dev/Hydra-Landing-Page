@@ -17,12 +17,13 @@ export async function POST(req: NextRequest) {
     }
     const buffer = Buffer.from(await file.arrayBuffer());
     const savedName = saveUploadedFile(buffer, file.name);
-    const { headers, rows, sheetNames } = readExcel(savedName);
+    const { headers, rows, sheetNames } = await readExcel(savedName);
     return NextResponse.json({
       fileName: savedName,
       sheetNames,
       headers,
       rowCount: rows.length,
+      preview: rows, // Return all rows for full view
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Upload failed";
